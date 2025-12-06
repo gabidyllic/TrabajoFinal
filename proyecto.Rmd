@@ -1,0 +1,1071 @@
+---
+title: "INFORMALIDAD LABORAL JUVENIL (ENAHO 2023)"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: cerulean
+    social: menu
+    mathjax: default
+    source_code: embed
+    navbar:
+      - { icon: "fa-brands fa-github", href: "https://github.com/gabidyllic/TrabajoFinal", align: right }
+---
+<style>
+/* 1. Texto gris muy oscuro */
+body {
+  color: #222222 !important;
+}
+
+/* 2. Estilo para las listas y párrafos dentro de los cuadros */
+.chart-wrapper .chart-stage p, 
+.chart-wrapper .chart-stage li,
+.chart-wrapper .chart-stage div {
+    color: #222222 !important;
+    font-weight: 500; /* Texto más grueso */
+}
+
+/* 3. Estilo para los títulos de los cuadros (ej: "CONTEXTO") */
+.chart-title {
+  color: #000000 !important;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+/* 4. Los números grandes de las cajitas de colores */
+.value-box .value {
+  color: #000000 !important;
+}
+
+/* 5. Fondo blanco para contrastar */
+body {
+  background-color: #ffffff;
+}
+
+/* 6. Hover effect para los valueBoxes */
+.value-box:hover {
+  background-color: #f0f0f0;
+  transition: background-color 0.3s ease;
+}
+</style>
+
+```{r}
+# 1. LIBRERÍAS
+library(rio)
+library(flexdashboard)
+library(fontawesome)     
+library(plotly)          
+library(DT)              
+library(dplyr)
+library(scales)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(tibble)
+library(broom)
+library(forcats)
+library(modelsummary)
+library(factoextra)
+library(cluster)
+library(psych)   
+library(pROC)     
+library(caret)
+library(tidyverse)
+
+```
+```{r}
+# 2. CARGA DE DATOS
+data <- read.csv("data_jovenes.csv")
+```
+```{r}
+# 3. PALETA DE COLORES
+col_rosado <- "#FF637D"   
+col_turquesa <- "#66D7D1"
+col_amarillo <- "#FFF87F" 
+col_alerta_rojo <- "#e74c3c" 
+col_verde <- "#2ecc71"  
+col_azul <- "#3498db"  
+```
+
+```{r}
+# 4. LIMPIEZA Y TRANSFORMACIÓN VISUAL
+data <- data %>%
+  mutate(
+    # Etiquetas para Sexo
+    SEXO_LABEL = ifelse(SEXO == 1, "Mujer", "Hombre"),
+    
+    # Etiquetas para Informalidad
+    INFORMAL_LABEL = ifelse(INFORMAL == 1, "Informal", "Formal"),
+    
+    # Etiquetas para Internet
+    INTERNET_LABEL = ifelse(INTERNET == 1, "Con Internet", "Sin Internet"),
+    
+    # Etiquetas para Educación (Convertimos 1 y 2 a texto)
+    EDUCA_LABEL = factor(NIVEL_EDUCATIVO, 
+                         levels = c(1, 2), 
+                         labels = c("Educación Básica", "Educación Superior")),
+    
+    REGION = as.factor(REGION)
+  )
+```
+
+
+```{r}
+#  5. PREPARACIÓN NUMÉRICA PARA EFA
+
+# A) Región: Convertimos Costa/Sierra/Selva a 1, 2, 3
+data$REGION_NUM <- as.numeric(data$REGION)
+
+# B) Educación: Ya viene como 1 y 2, nos aseguramos que sea numérico
+data$EDUCA_NUM <- as.numeric(data$NIVEL_EDUCATIVO)
+
+# C) Sexo: Ya viene como 1 y 0 (o 1 y 2), nos aseguramos que sea numérico
+data$SEXO_NUM <- as.numeric(data$SEXO)
+
+# D) Internet: Ya viene como 1 y 0
+data$INTERNET_NUM <- as.numeric(data$INTERNET)
+
+# E) Ingresos y Antigüedad: Ya son numéricos
+
+# Seleccionamos las columnas finales para el EFA y las estandarizamos (scale) para que los sueldos (miles) no opaquen a la educación (1 o 2).
+data_efa <- data %>%
+  select(ingresos_jovenes, mesestrab_antiguedad, EDAD, 
+         REGION_NUM, EDUCA_NUM, SEXO_NUM, INTERNET_NUM) %>%
+  na.omit() %>%
+  scale()
+```
+
+Introducción {data-icon="fa-regular fa-id-card" style="color: #f7f7f7;"}
+===================================== 
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Jóvenes encuestados
+
+```{r}
+total <- nrow(data)
+valueBox(
+  value = total,
+  caption = "Jóvenes encuestados",
+  icon = "fas fa-users",
+  color = col_turquesa
+)
+```
+
+
+### Tasa de informalidad 
+
+```{r}
+informales_count <- sum(data$INFORMAL == 1, na.rm = TRUE)
+tasa <- round((informales_count / total) * 100, 1)
+
+valueBox(
+  value = paste0(tasa, "%"),
+  caption = "Tasa de informalidad laboral",
+  icon = "fas fa-briefcase", 
+  color = ifelse(tasa > 70, col_alerta_rojo, col_amarillo) 
+)
+```
+
+### Ingreso promedio
+
+```{r}
+ingreso_prom <- round(mean(data$ingresos_jovenes, na.rm = TRUE), 0)
+valueBox(
+  value = paste("S/", ingreso_prom),
+  caption = "Ingreso mensual promedio",
+  icon = "fas fa-money-bill-wave",
+  color = col_rosado
+)
+```
+
+### CONTEXTO: {data-height=400}
+
+
+- **Problemática actual:** La informalidad laboral en jóvenes (15-29 años) es una barrera persistente para el desarrollo económico y la protección social en el Perú.
+
+- **El estudio utiliza la Encuesta Nacional de Hogares para analizar una muestra representativa a nivel nacional.**
+
+- **Objetivo del estudio:** Identificar qué factores socioeconómicos incrementan la probabilidad de que un joven tenga un empleo informal.
+
+- **Metodología:** Se aplican técnicas descriptivas, modelos de regresión logística y análisis multivariado (Factorial y Clúster) para entender los perfiles de informalidad.
+
+Rows
+-----------------------------------------------------------------------
+### MAPA DEL PERÚ
+
+```{r}
+# 6. MAPA DEL PERÚ
+library(leaflet)
+
+# Crear mapa base de Perú
+mapa_peru <- leaflet() %>%
+  addTiles() %>%
+  addMarkers(lng = -75.03, lat = -9.19, popup = "Lima")  
+
+mapa_peru
+```
+Variable Dependiente {data-icon="fa-solid fa-layer-group"}
+===================================== 
+
+Column {data-width=500} 
+-----------------------------------------------------------------------
+
+### Estudio de Caso: Informalidad Juvenil
+
+> ***Pregunta de investigación***
+
+> ***¿Qué factores socioeconómicos influyen en la probabilidad de que un joven peruano (15-29 años) tenga un empleo informal en 2023?***
+
+> ***Hipótesis central***
+
+Los jóvenes con menor nivel educativo, que residen en zonas rurales y la selva, y que no tienen acceso a internet, tienen una probabilidad significativamente mayor de laborar en la informalidad.
+
+### Tabla de Distribución {data-height=300} 
+
+```{r}
+tabla_dep <- data %>%
+  count(INFORMAL_LABEL) %>%
+  mutate(
+    Porcentaje = round(100 * n / sum(n), 1)
+  ) %>%
+  select(Condición = INFORMAL_LABEL, Frecuencia = n, Porcentaje)
+
+datatable(tabla_dep,
+          options = list(dom = 't', pageLength = 5),
+          caption = 'Distribución de jóvenes según Condición Laboral',
+          rownames = FALSE)
+```
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### PREVALENCIA DE INFORMALIDAD
+
+```{r}
+p_barras <- data %>%
+  count(INFORMAL_LABEL) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    etiqueta = paste0(n, "\n(", pct, "%)")
+  ) %>%
+  ggplot(aes(x = INFORMAL_LABEL, y = n, fill = INFORMAL_LABEL)) +
+  geom_col(width = 0.6) +
+
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) + 
+  geom_text(aes(label = etiqueta), vjust = -0.5, fontface = "bold") +
+  labs(
+    title = "Distribución de empleo formal e informal",
+    subtitle = "Muestra ENAHO 2023",
+    x = "Tipo de empleo", 
+    y = "Cantidad de jóvenes",
+    caption = "Encuesta Nacional de Hogares (ENAHO) - 2023, INEI Perú. Elaboración propia."
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+
+ggplotly(p_barras, tooltip = c("y"))
+```
+
+### BRECHA REGIONAL
+
+```{r}
+p_regiones <- data %>%
+  filter(!is.na(REGION)) %>%
+  count(REGION, INFORMAL_LABEL) %>%
+  group_by(REGION) %>%
+  mutate(pct = round(n/sum(n)*100, 1)) %>%
+  ggplot(aes(x = REGION, y = pct, fill = INFORMAL_LABEL)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  labs(
+    title = "Informalidad según región",
+    y = "Porcentaje (%)", 
+    x = "Región", 
+    fill = "Condición"
+  ) +
+  theme_minimal()
+
+ggplotly(p_regiones)
+```
+
+`Variables Independientes {data-icon="fa-solid fa-code-branch"} 
+=====================================  
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### Ingresos (S/.)
+
+```{r}
+# 1. Calculamos valores exactos
+media_ing <- round(mean(data$ingresos_jovenes, na.rm = TRUE), 1)
+mediana_ing <- median(data$ingresos_jovenes, na.rm = TRUE)
+
+# 2. Gráfico Boxplot Verde Oscuro con Outliers Rojos
+g_ingreso <- ggplot(data, aes(x = 0, y = ingresos_jovenes)) +
+  
+  # A) Línea punteada Azul (Mediana) atravesando todo
+  geom_hline(yintercept = mediana_ing, linetype = "dotted", color = "#5DADE2", size = 1) +
+  
+  # B) El Boxplot (Caja Verde Oscuro)
+  # Configuramos los outliers (puntos) para que sean ROJOS como en tu foto
+  geom_boxplot(fill = "#458B74", width = 0.25, 
+               outlier.colour = "#C0392B", outlier.fill = "#E74C3C", 
+               outlier.shape = 21, outlier.size = 3) + 
+  
+  # C) El Rombo Naranja (La Media)
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "#F39C12", color = "white") +
+  
+  # D) Texto flotante a la izquierda (Media) - Naranja
+  annotate("text", x = -0.18, y = media_ing, 
+           label = paste("Media =", media_ing), 
+           color = "#F39C12", fontface = "italic", size = 4, hjust = 1) +
+  
+  # E) Texto flotante a la derecha (Mediana) - Azul Claro
+  annotate("text", x = 0.18, y = mediana_ing, 
+           label = paste("Mediana =", mediana_ing), 
+           color = "#5DADE2", fontface = "italic", size = 4, hjust = 0) +
+  
+  # F) Títulos exactos
+  labs(
+    title = "Distribución de ingresos mensuales de jóvenes",
+    subtitle = "Boxplot con identificación de media, mediana y valores atípicos",
+    x = "",
+    y = "Ingresos mensuales (en soles)"
+  ) +
+  
+  # G) Tema limpio
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, color = "#333333"),
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_blank(),  # Sin texto en eje X
+    panel.grid.major.x = element_blank()
+  ) +
+  # Fijamos límites
+  xlim(-0.4, 0.4)
+
+# Mostramos versión estática
+g_ingreso
+```
+
+### Edad 
+
+```{r}
+# 1. Calculamos valores
+media_edad <- round(mean(data$EDAD, na.rm = TRUE), 1)
+mediana_edad <- median(data$EDAD, na.rm = TRUE)
+
+# 2. Gráfico "Slim"
+g_edad <- ggplot(data, aes(x = 0, y = EDAD)) +
+  
+  # Línea de referencia
+  geom_hline(yintercept = mediana_edad, linetype = "dotted", color = "#1ABC9C", size = 1) +
+  
+  # AQUI ESTÁ EL CAMBIO: width = 0.15 (Mucho más delgado)
+  geom_boxplot(fill = "#5DADE2", width = 0.15, outlier.shape = 1) + 
+  
+  # Rombo
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "#F39C12", color = "white") +
+  
+  # Textos ajustados (acercamos las coordenadas x al centro)
+  annotate("text", x = -0.12, y = media_edad, 
+           label = paste("Media =", media_edad), 
+           color = "#F39C12", fontface = "italic", size = 3.5, hjust = 1) +
+  
+  annotate("text", x = 0.12, y = mediana_edad, 
+           label = paste("Mediana =", mediana_edad), 
+           color = "#1ABC9C", fontface = "italic", size = 3.5, hjust = 0) +
+  
+  labs(
+    title = "Distribución de la edad de jóvenes ocupados",
+    subtitle = "Boxplot con identificación de media, mediana y valores atípicos",
+    x = "",
+    y = "Edad (en años)"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  # Fijamos límites en X para que la caja no se estire
+  xlim(-0.25, 0.25)
+
+g_edad
+```
+
+
+### Antigüedad Laboral
+
+```{r}
+# 1. Calculamos valores exactos
+media_ant <- round(mean(data$mesestrab_antiguedad, na.rm = TRUE), 1)
+mediana_ant <- median(data$mesestrab_antiguedad, na.rm = TRUE)
+
+# 2. Gráfico Boxplot Morado con Outliers Naranjas
+g_antiguedad <- ggplot(data, aes(x = 0, y = mesestrab_antiguedad)) +
+  
+  # A) Línea punteada verde (Mediana) atravesando todo
+  geom_hline(yintercept = mediana_ant, linetype = "dotted", color = "#28B463", size = 1) +
+  
+  # B) El Boxplot (Caja Morada)
+  # Configuramos los outliers (puntos) para que sean naranjas y grandes como en tu foto
+  geom_boxplot(fill = "#884EA0", width = 0.25, 
+               outlier.colour = "#D35400", outlier.fill = "#EDBB99", 
+               outlier.shape = 21, outlier.size = 3) + 
+  
+  # C) El Rombo Amarillo (La Media)
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "#F4D03F", color = "white") +
+  
+  # D) Texto flotante a la izquierda (Media) - Amarillo
+  # Ajustamos la posición 'y' un poco para que no se superponga
+  annotate("text", x = -0.18, y = media_ant + 15, 
+           label = paste("Media =", media_ant), 
+           color = "#F4D03F", fontface = "italic", size = 4, hjust = 1) +
+  
+  # E) Texto flotante a la derecha (Mediana) - Verde
+  annotate("text", x = 0.18, y = mediana_ant, 
+           label = paste("Mediana =", mediana_ant), 
+           color = "#28B463", fontface = "italic", size = 4, hjust = 0) +
+  
+  # F) Títulos exactos
+  labs(
+    title = "Antigüedad en el empleo principal de jóvenes ocupados",
+    subtitle = "Boxplot con identificación de media, mediana y valores atípicos",
+    x = "",
+    y = "Meses trabajados"
+  ) +
+  
+  # G) Tema limpio
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, color = "#333333"),
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.text.x = element_blank(),  # Sin texto en eje X
+    panel.grid.major.x = element_blank()
+  ) +
+  # Fijamos límites para centrar la caja delgada
+  xlim(-0.4, 0.4)
+
+# Mostramos versión estática
+g_antiguedad
+```
+
+### Sexo
+
+```{r}
+# 1. Preparar datos (Conteo y Porcentaje)
+data_sexo_plot <- data %>%
+  count(SEXO_LABEL) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    # Etiqueta combinada: "6115 (59.8%)"
+    etiqueta = paste0(n, " (", pct, "%)")
+  )
+
+# 2. Crear el gráfico idéntico a tu captura
+g_sexo <- ggplot(data_sexo_plot, aes(x = SEXO_LABEL, y = n, fill = SEXO_LABEL)) +
+  geom_col(width = 0.5) + # Ancho ajustado
+
+  # Etiquetas encima de las barras
+  geom_text(aes(label = etiqueta), vjust = -0.5, fontface = "bold", size = 4) +
+
+  # Colores personalizados: 
+  scale_fill_manual(values = c("#6A8EBF", "#D499B9")) +
+
+  # Títulos exactos de tu imagen
+  labs(
+    title = "Distribución de jóvenes ocupados por sexo",
+    subtitle = "Comparación de participación entre hombres y mujeres",
+    x = "Sexo",
+    y = "Número de jóvenes"
+  ) +
+
+  # Tema limpio
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(size = 11, color = "black"),
+    axis.title.y = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+# Mostramos versión estática para mantener el diseño exacto
+g_sexo
+```
+
+### Nivel Educativo
+
+```{r}
+# 1. Preparar datos (Conteo y Porcentaje)
+data_educ_plot <- data %>%
+  count(EDUCA_LABEL) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    # Etiqueta combinada: "5874 (57.4%)"
+    etiqueta = paste0(n, " (", pct, "%)")
+  )
+
+# 2. Crear el gráfico idéntico a tu captura
+g_educa <- ggplot(data_educ_plot, aes(x = EDUCA_LABEL, y = n, fill = EDUCA_LABEL)) +
+  geom_col(width = 0.5) + # Ajustamos el ancho para que no sean muy gordas
+
+  # Etiquetas encima de las barras
+  geom_text(aes(label = etiqueta), vjust = -0.5, fontface = "bold", size = 4) +
+
+  scale_fill_manual(values = c("#F5B041", "#7DCEA0")) +
+
+  # Títulos exactos de tu imagen
+  labs(
+    title = "Distribución de jóvenes ocupados según nivel educativo",
+    subtitle = "Frecuencia y porcentaje por nivel educativo alcanzado",
+    x = "Nivel educativo",
+    y = "Número de jóvenes"
+  ) +
+
+
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(size = 11, color = "black"), 
+    axis.title.y = element_text(face = "bold"),
+    panel.grid.major.x = element_blank() 
+  )
+
+# Mostramos versión estática para mantener el diseño exacto
+g_educa
+```
+
+### Región natural
+
+```{r}
+# 1. Preparamos los datos con la etiqueta exacta
+data_region_plot <- data %>%
+  count(REGION) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    etiqueta = paste0(n, " (", pct, "%)"),
+    REGION = reorder(REGION, -n) 
+  )
+
+# 2. Creamos el gráfico 
+g_region <- ggplot(data_region_plot, aes(x = REGION, y = n, fill = REGION)) +
+  geom_col() +
+  
+  # Ponemos los textos encima de las barras
+  geom_text(aes(label = etiqueta), vjust = -0.5, fontface = "bold", size = 4) +
+  
+  # Usamos colores parecidos a tu imagen (Azul, Morado, Verde)
+  scale_fill_manual(values = c("#5DADE2", "#A569BD", "#7DCEA0")) +
+  
+  # Títulos exactos de tu imagen
+  labs(
+    title = "Distribución de jóvenes ocupados por región",
+    subtitle = "Frecuencia y porcentaje según ubicación geográfica",
+    x = "Región",
+    y = "Número de jóvenes"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    legend.position = "none", 
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12, face = "bold")
+  )
+
+g_region
+```
+
+### Acceso a Internet 
+
+```{r}
+# 1. Preparar datos
+data_net_plot <- data %>%
+  count(INTERNET_LABEL) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    etiqueta = paste0(n, " (", pct, "%)"),
+    
+  
+    Etiqueta_Foto = case_when(
+       INTERNET_LABEL == "Sin Internet" ~ "No cuenta con Internet",
+       INTERNET_LABEL == "Con Internet" ~ "Cuenta con Internet",
+       TRUE ~ INTERNET_LABEL
+    )
+  )
+
+# 2. Crear el gráfico idéntico a tu captura
+g_net <- ggplot(data_net_plot, aes(x = Etiqueta_Foto, y = n, fill = Etiqueta_Foto)) +
+  geom_col(width = 0.5) + # Barras delgadas
+
+  # Etiquetas encima
+  geom_text(aes(label = etiqueta), vjust = -0.5, fontface = "bold", size = 4) +
+
+  # Colores de tu foto: Naranja quemado y Verde hoja
+  scale_fill_manual(values = c("No cuenta con Internet" = "#D97728", 
+                               "Cuenta con Internet" = "#5BA85F")) +
+
+  # Títulos exactos
+  labs(
+    title = "Acceso a Internet en el hogar",
+    subtitle = "Frecuencia y porcentaje de jóvenes según su acceso a Internet",
+    x = "Acceso a Internet",
+    y = "Número de jóvenes"
+  ) +
+
+  # Tema limpio
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(size = 11, color = "black"),
+    axis.title.y = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+# Versión estática para mantener el diseño perfecto
+g_net
+```
+
+Column {data-width=500} 
+-----------------------------------------------------------------------
+
+### Estadísticos descripticos de las variables numéricas:
+
+```{r}
+# 1. Seleccionar solo las variables numéricas
+vars_numericas <- data %>%
+ dplyr::select(
+    `Ingreso Mensual (S/.)` = ingresos_jovenes,
+    `Edad (Años)` = EDAD,
+    `Antigüedad Laboral (Meses)` = mesestrab_antiguedad
+  ) %>%
+  na.omit() 
+
+# 2. Calcular resumen estadístico COMPLETO
+resumen_multi <- vars_numericas %>%
+  summarise(across(everything(), list(
+    Media = ~mean(., na.rm = TRUE),
+    Mediana = ~median(., na.rm = TRUE),
+    SD = ~sd(., na.rm = TRUE),
+    Min = ~min(., na.rm = TRUE),
+    Max = ~max(., na.rm = TRUE),
+    Q1 = ~quantile(., 0.25, na.rm = TRUE),
+    Q3 = ~quantile(., 0.75, na.rm = TRUE),
+    IC_inf = ~mean(., na.rm = TRUE) - qt(0.975, sum(!is.na(.)) - 1) * sd(., na.rm = TRUE) / sqrt(sum(!is.na(.))),
+    IC_sup = ~mean(., na.rm = TRUE) + qt(0.975, sum(!is.na(.)) - 1) * sd(., na.rm = TRUE) / sqrt(sum(!is.na(.)))
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(everything(), names_to = c("Variable", "Estadístico"), names_sep = "_", values_to = "Valor") %>%
+  
+  # --- VOLVEMOS A LA ORIENTACIÓN ORIGINAL ---
+  # Variables como columnas (arriba), Estadísticos como filas (izquierda)
+  pivot_wider(names_from = Variable, values_from = Valor) %>%
+  rename(`Estadístico` = Estadístico)
+
+# 3. Mostrar tabla
+resumen_multi %>%
+  kable(digits = 1, caption = "Medidas de tendencia central y dispersión") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    position = "center",
+    font_size = 14
+  ) %>%
+  row_spec(0, bold = TRUE) # Negrita en los encabezados
+```
+### Principales hallazgos {data-height=300}
+
+- **Precariedad salarial:** La mediana del ingreso mensual es de **S/ 892.50**, cifra que se encuentra **por debajo de la Remuneración Mínima Vital** (S/ 1,025). Esto indica que más de la mitad de los jóvenes ocupados percibe ingresos insuficientes, un rasgo típico de la informalidad.
+
+- **Alta inestabilidad laboral:** Existe una rotación alarmante. La mediana de antigüedad en el empleo es de apenas **6 meses**, mientras que el promedio se dispara a **17.1 meses** debido a valores atípicos. Esto confirma que la gran mayoría de jóvenes tiene empleos temporales o de muy corta duración.
+
+- **Capital humano:** El **57.4%** de la fuerza laboral juvenil cuenta solo con **educación básica**. Este bajo nivel de especialización es una barrera estructural que dificulta el acceso al mercado formal.
+
+- **Brecha digital y regional:** Aunque el **94.2%** tiene acceso a internet (muestra urbana predominante), la concentración del empleo en la **Costa (48.4%)** sugiere una centralización de oportunidades, dejando a la Sierra y Selva con mercados laborales más pequeños.
+
+- **Brecha de género:** La participación laboral es mayoritariamente masculina (**59.8%**), lo que podría evidenciar barreras de entrada para las mujeres jóvenes en el mercado de trabajo.
+
+Análisis Bivariado {data-icon="fa-solid fa-chart-line"}
+=====================================  
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### Ingresos vs Informalidad
+
+```{r}
+# Cálculo de Medias e Intervalos 
+g_ingreso <- data %>%
+  group_by(INFORMAL_LABEL) %>%
+  summarise(
+    Media = mean(ingresos_jovenes, na.rm = TRUE),
+    SD = sd(ingresos_jovenes, na.rm = TRUE),
+    N = n(),
+    SE = SD / sqrt(N),
+    IC_Inf = Media - 1.96 * SE,
+    IC_Sup = Media + 1.96 * SE
+  ) 
+
+p_bivar1 <- ggplot(g_ingreso, aes(x = INFORMAL_LABEL, y = Media)) +
+  geom_bar(stat = "identity", aes(fill = INFORMAL_LABEL), color = "black", width = 0.6) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup), width = 0.2) +
+  geom_text(aes(label = paste("S/.", round(Media, 0)), y = Media), 
+            vjust = 2.5, fontface = "bold", color = "black") +
+  labs(title = "Ingreso promedio según condición laboral", y = "Soles (S/.)", x = "Condición laboral") +
+  theme_minimal() + theme(legend.position = "none")
+
+ggplotly(p_bivar1)
+```
+
+### Edad vs Informalidad
+
+```{r}
+g_edad <- data %>%
+  group_by(INFORMAL_LABEL) %>%
+  summarise(
+    Media = mean(EDAD, na.rm = TRUE),
+    SD = sd(EDAD, na.rm = TRUE),
+    N = n(),
+    SE = SD / sqrt(N),
+    IC_Inf = Media - 1.96 * SE,
+    IC_Sup = Media + 1.96 * SE
+  )
+
+p_bivar2 <- ggplot(g_edad, aes(x = INFORMAL_LABEL, y = Media)) +
+  geom_bar(stat = "identity", aes(fill = INFORMAL_LABEL), color = "black", width = 0.6) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup), width = 0.2) +
+  geom_text(aes(label = paste(round(Media, 1), "años"), y = Media), 
+            vjust = 2.5, fontface = "bold", color = "black") +
+  labs(title = "Edad promedio según condición", y = "Edad (años)", x = "Condición laboral") +
+  theme_minimal() + theme(legend.position = "none")
+
+ggplotly(p_bivar2)
+```
+
+### Antigüedad vs Informalidad
+
+```{r}
+g_ant <- data %>%
+  group_by(INFORMAL_LABEL) %>%
+  summarise(
+    Media = mean(mesestrab_antiguedad, na.rm = TRUE),
+    SD = sd(mesestrab_antiguedad, na.rm = TRUE),
+    N = n(),
+    SE = SD / sqrt(N),
+    IC_Inf = Media - 1.96 * SE,
+    IC_Sup = Media + 1.96 * SE
+  )
+
+p_bivar3 <- ggplot(g_ant, aes(x = INFORMAL_LABEL, y = Media)) +
+  geom_bar(stat = "identity", aes(fill = INFORMAL_LABEL), color = "black", width = 0.6) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  geom_errorbar(aes(ymin = IC_Inf, ymax = IC_Sup), width = 0.2) +
+  geom_text(aes(label = paste(round(Media, 1), "m"), y = Media), 
+            vjust = 2.5, fontface = "bold", color = "black") +
+  labs(title = "Antigüedad promedio (Meses)", y = "Meses", x = "Condición laboral") +
+  theme_minimal() + theme(legend.position = "none")
+
+ggplotly(p_bivar3)
+```
+
+### Educación vs Informalidad
+
+```{r}
+# Gráfico de barras apiladas 100%
+p_educ <- data %>%
+  count(EDUCA_LABEL, INFORMAL_LABEL) %>%
+  group_by(EDUCA_LABEL) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = EDUCA_LABEL, y = n, fill = INFORMAL_LABEL)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  labs(title = "¿La educación reduce la informalidad?", x = "", y = "Proporción", fill = "Condición laboral") +
+  theme_minimal() +
+  coord_flip() # Horizontal para leer mejor
+
+ggplotly(p_educ)
+```
+
+### Sexo vs Informalidad
+
+```{r}
+p_sex <- data %>%
+  count(SEXO_LABEL, INFORMAL_LABEL) %>%
+  group_by(SEXO_LABEL) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = SEXO_LABEL, y = n, fill = INFORMAL_LABEL)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  labs(title = "Disparidad por género", x = "Sexo", y = "Proporción", fill = "Condición laboral") +
+  theme_minimal()
+
+ggplotly(p_sex)
+```
+
+### Región vs Informalidad
+
+```{r}
+p_reg <- data %>%
+  count(REGION, INFORMAL_LABEL) %>%
+  group_by(REGION) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = REGION, y = n, fill = INFORMAL_LABEL)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  labs(title = "Informalidad por región natural", x = "", y = "Proporción", fill = "Condición laboral") +
+  theme_minimal() +
+  coord_flip()
+
+ggplotly(p_reg)
+```
+
+### Internet vs Informalidad
+
+```{r}
+p_net <- data %>%
+  count(INTERNET_LABEL, INFORMAL_LABEL) %>%
+  group_by(INTERNET_LABEL) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = INTERNET_LABEL, y = n, fill = INFORMAL_LABEL)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(col_turquesa, col_rosado)) +
+  labs(title = "Brecha digital", x = "Acceso a Internet", y = "Proporción", fill = "Condición laboral") +
+  theme_minimal()
+
+ggplotly(p_net)
+```
+
+Column {data-width=600} 
+-----------------------------------------------------------------------
+
+### T-Test: {data-height=400}
+
+```{r}
+### Prueba T-Student (Diferencia de Medias)
+
+# 1. Variables numéricas que SÍ tienes en tu data
+vars_test <- c("ingresos_jovenes", "EDAD", "mesestrab_antiguedad")
+nombres_bonitos <- c("Ingreso Mensual (S/.)", "Edad (Años)", "Antigüedad (Meses)")
+
+# 2. Función T-test incluyendo los Intervalos de Confianza (IC)
+resultados_t <- map2_df(vars_test, nombres_bonitos, function(var, nombre) {
+  t <- t.test(data[[var]] ~ data$INFORMAL_LABEL)
+  
+  data.frame(
+    Variable = nombre,
+    `Media Formal` = round(t$estimate[1], 2),
+    `Media Informal` = round(t$estimate[2], 2),
+    # Agregamos la Diferencia
+    `Diferencia` = round(t$estimate[1] - t$estimate[2], 2),
+    # Agregamos los Intervalos de Confianza de la diferencia
+    `IC 95% Inf` = round(t$conf.int[1], 2),
+    `IC 95% Sup` = round(t$conf.int[2], 2),
+    `Valor p` = format.pval(t$p.value, digits = 3, eps = 0.001)
+  )
+})
+
+# 3. Tabla completa
+resultados_t %>%
+  kable(format = "html", row.names = FALSE, caption = "Comparación de medias e intervalos de confianza (t-test)", align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    position = "center",
+    font_size = 13 # Un poquito más chica para que entren todas las columnas
+  ) %>%
+  row_spec(which(resultados_t$`Valor p` < 0.05), bold = TRUE, color = "black", background = "#dff0d8")
+```
+
+### Principales hallazgos del análisis bivariado
+
+**1. La brecha salarial es estructural y significativa**
+La prueba T-Student confirma con un nivel de confianza del 99% (p < 0.001) que existe una diferencia abismal en las remuneraciones. Los jóvenes con empleo formal perciben, en promedio, ingresos que casi duplican a los del sector informal. Esto valida que la informalidad en el Perú no es solo una cuestión legal, sino sinónimo de precariedad económica.
+
+**2. El "efecto protector" de la educación superior**
+El gráfico de barras apiladas revela una relación inversa clara: a mayor nivel educativo, menor es la barra de informalidad. Esto sugiere que la educación superior actúa como un "escudo" contra la informalidad, permitiendo a los jóvenes acceder a mercados laborales más estructurados, aunque no elimina el riesgo por completo.
+
+**3. Inestabilidad y rotación laboral**
+La diferencia significativa en la antigüedad laboral (meses trabajados) indica que los empleos informales son efímeros. Mientras que el empleo formal tiende a ofrecer mayor estabilidad temporal, el sector informal se caracteriza por una alta rotación, lo que impide a los jóvenes acumular experiencia y antigüedad, perpetuando el ciclo de pobreza.
+
+**4. La brecha digital como segregador social**
+El acceso a internet muestra una fuerte asociación con la formalidad. Quienes no cuentan con conexión en el hogar presentan tasas de informalidad drásticamente superiores. Esto sugiere que la "desconexión" digital es hoy una barrera de entrada al mercado laboral moderno y formal.
+
+**5. Factor demográfico**
+La edad promedio de los informales es menor que la de los formales. Esto podría indicar que la informalidad funciona como una "puerta de entrada" al mercado laboral para los más jóvenes (15-19 años) que carecen de experiencia, o bien, que la formalización es un proceso que se alcanza tardíamente.
+
+Regresión Logística {data-icon="fa-solid fa-calculator"}
+=====================================  
+
+```{r}
+# 1. PREPARACIÓN DE DATOS: TODO A NUMÉRICO
+# Siguiendo la instrucción de tu profesora, convertimos factores a números.
+data_reg <- data %>%
+  mutate(
+    # --- VARIABLE DEPENDIENTE (Y) ---
+    # 1 = Informal, 0 = Formal
+    y = ifelse(INFORMAL == 1, 1, 0),
+    
+    # --- VARIABLES INDEPENDIENTES NUMÉRICAS ---
+    
+    # 1. SEXO (Binaria): 1=Mujer, 0=Hombre
+    sexo_num = ifelse(SEXO == 1, 1, 0),
+    
+    # 2. EDUCACIÓN (Binaria): 1=Superior, 0=Básica
+    # Asumiendo que en tu data original 2 era Superior y 1 Básica
+    educa_num = ifelse(NIVEL_EDUCATIVO == 2, 1, 0),
+    
+    # 3. INTERNET (Binaria): 1=Sí, 0=No
+    internet_num = ifelse(INTERNET == 1, 1, 0),
+    
+    # 4. REGIÓN (Categórica a Numérica): 1=Costa, 2=Sierra, 3=Selva
+    # Esto asume un orden lineal.
+    region_num = as.numeric(REGION),
+    
+    # 5, 6, 7. VARIABLES YA NUMÉRICAS
+    ingresos = ingresos_jovenes,
+    edad = EDAD,
+    antiguedad = mesestrab_antiguedad
+  ) %>%
+  # Seleccionamos solo las columnas numéricas finales
+  select(y, sexo_num, educa_num, internet_num, region_num, ingresos, edad, antiguedad) %>%
+  na.omit()
+```
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### MATRIZ DE CORRELACIÓN
+
+```{r}
+library(corrplot)
+# Calculamos correlación de todo el dataset numérico
+M <- cor(data_reg)
+
+# Gráfico
+corrplot(M, method = "color", 
+         type = "lower", 
+         addCoef.col = "black", # Muestra los coeficientes
+         tl.col = "black", 
+         tl.cex = 0.8,
+         number.cex = 0.7,
+         col = colorRampPalette(c(col_rosado, "white", col_turquesa))(200),
+         title = "Matriz de Correlación",
+         mar = c(0,0,2,0))
+```
+
+### MODELOS DE REGRESIÓN
+
+```{r}
+library(modelsummary)
+
+# Modelo 1: Solo variables personales (Sexo, Edad)
+m1 <- glm(y ~ sexo_num + edad, 
+          data = data_reg, family = binomial)
+
+# Modelo 2: Agregamos Capital Humano y Geografía
+m2 <- glm(y ~ sexo_num + edad + educa_num + region_num, 
+          data = data_reg, family = binomial)
+
+# Modelo 3: COMPLETO
+m3 <- glm(y ~ sexo_num + edad + educa_num + region_num + internet_num + ingresos + antiguedad, 
+          data = data_reg, family = binomial)
+
+# Tabla Comparativa 
+modelsummary(
+  list("Mod 1 (Básico)" = m1, "Mod 2 (Intermedio)" = m2, "Mod 3 (Final)" = m3),
+  exponentiate = TRUE, 
+  stars = TRUE,
+  statistic = "conf.int",
+  fmt = 3,
+  
+  ci_method = "wald", # Calcula los intervalos rápido y sin errores
+  
+  title = "Odds Ratios: Probabilidad de Informalidad (Variables numéricas)",
+  output = "kableExtra"
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 11)
+```
+
+### IMPORTANCIA DE VARIABLES (Estandarizado)
+
+```{r}
+# Estandarizamos solo las predictoras, excluyendo 'y'
+data_std <- data_reg %>% 
+  mutate(across(-y, scale)) 
+
+# Ahora sí corre el modelo
+m_std <- glm(y ~ ., data = data_std, family = binomial)
+
+# Y tu gráfico (sin cambios aquí)
+modelplot(m_std, color = col_turquesa) +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Peso de cada variable (Coeficientes Estandarizados)",
+       subtitle = "Derecha (>0): Aumenta riesgo | Izquierda (<0): Protege") +
+  theme_minimal()
+```
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### EVALUACIÓN DEL MODELO FINAL
+
+```{r}
+library(caret)
+# Predicciones con el modelo completo (m3)
+prob <- predict(m3, type = "response")
+pred_clase <- ifelse(prob > 0.5, 1, 0)
+
+# Matriz de Confusión
+cm <- confusionMatrix(factor(pred_clase), factor(data_reg$y), positive = "1")
+
+# Tabla de resultados
+as.data.frame(cm$table) %>%
+  mutate(Prediccion = ifelse(Prediction == 1, "Pred: Informal", "Pred: Formal"),
+         Real = ifelse(Reference == 1, "Real: Informal", "Real: Formal")) %>%
+  pivot_wider(names_from = Prediccion, values_from = Freq) %>%
+  kable(caption = paste("Precisión Global (Accuracy):", round(cm$overall['Accuracy']*100, 1), "%")) %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+### CURVA ROC
+
+```{r}
+library(pROC)
+roc_obj <- roc(data_reg$y, prob)
+
+plot(roc_obj, 
+     col = col_turquesa, 
+     lwd = 3, 
+     main = paste("Capacidad predictiva (AUC =", round(auc(roc_obj), 3), ")"),
+     legacy.axes = TRUE)
+```
+
+Row {data-width=500}
+-----------------------------------------------------------------------
+
+### ¿Qué modelo es el mejor? {data-commentary-height=700}
+
+```{r}
+library(lmtest)
+# Test para ver si vale la pena agregar variables
+lrtest(m1, m2, m3) %>%
+  kable(caption = "Resultados del test LRT") %>%
+  kable_styling(full_width = FALSE) %>%
+  row_spec(3, bold = TRUE, background = "#dff0d8")
+```
+> ***El modelo III es el mejor: es el más parsimonioso y tiene mejor ajuste.***
+
+### CONSIDERACIONES {data-commentary-width=500}
